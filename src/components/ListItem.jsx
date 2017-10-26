@@ -1,12 +1,15 @@
 var React = require('react');
 var createReactClass = require('create-react-class');
 
-
+/*
+   props:
+    text
+*/
 var ListItem = createReactClass({
   render: function(){
     return (
       <li>
-        <h4>{this.props.ingredient}</h4>
+        <h6>{this.props.text}</h6>
       </li>
     );
   }

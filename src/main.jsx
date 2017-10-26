@@ -1,9 +1,11 @@
 var React = require('react');
 var ReactDom = require('react-dom');
-var List = require('./components/List.jsx');
+var ListManager = require('./components/ListManager.jsx');
+var LeadCapture = require('./components/LeadCapture.jsx');
 
 
-let ingredientsData = [{id:1, ingredient:"Sugar"},{id:2, ingredient:"Salt"}, {id:3, ingredient:"Cheese"}];
 
-
-ReactDom.render(<List items = {ingredientsData}/>, document.getElementById('app'));
+ReactDom.render(<ListManager title="TO-DO" headingColor="#b31217"/>, document.getElementById('todo'));
+ReactDom.render(<ListManager title="DONE" />, document.getElementById('done'));
+ReactDom.render(<ListManager title="TO-REVIEW"/>, document.getElementById('toreview'));
+ReactDom.render(<LeadCapture/>, document.getElementById('email'));

@@ -21849,16 +21849,571 @@ if (process.env.NODE_ENV === 'production') {
 
 }).call(this,require('_process'))
 },{"./cjs/react.development.js":31,"./cjs/react.production.min.js":32,"_process":22}],34:[function(require,module,exports){
+(function(self) {
+  'use strict';
+
+  if (self.fetch) {
+    return
+  }
+
+  var support = {
+    searchParams: 'URLSearchParams' in self,
+    iterable: 'Symbol' in self && 'iterator' in Symbol,
+    blob: 'FileReader' in self && 'Blob' in self && (function() {
+      try {
+        new Blob()
+        return true
+      } catch(e) {
+        return false
+      }
+    })(),
+    formData: 'FormData' in self,
+    arrayBuffer: 'ArrayBuffer' in self
+  }
+
+  if (support.arrayBuffer) {
+    var viewClasses = [
+      '[object Int8Array]',
+      '[object Uint8Array]',
+      '[object Uint8ClampedArray]',
+      '[object Int16Array]',
+      '[object Uint16Array]',
+      '[object Int32Array]',
+      '[object Uint32Array]',
+      '[object Float32Array]',
+      '[object Float64Array]'
+    ]
+
+    var isDataView = function(obj) {
+      return obj && DataView.prototype.isPrototypeOf(obj)
+    }
+
+    var isArrayBufferView = ArrayBuffer.isView || function(obj) {
+      return obj && viewClasses.indexOf(Object.prototype.toString.call(obj)) > -1
+    }
+  }
+
+  function normalizeName(name) {
+    if (typeof name !== 'string') {
+      name = String(name)
+    }
+    if (/[^a-z0-9\-#$%&'*+.\^_`|~]/i.test(name)) {
+      throw new TypeError('Invalid character in header field name')
+    }
+    return name.toLowerCase()
+  }
+
+  function normalizeValue(value) {
+    if (typeof value !== 'string') {
+      value = String(value)
+    }
+    return value
+  }
+
+  // Build a destructive iterator for the value list
+  function iteratorFor(items) {
+    var iterator = {
+      next: function() {
+        var value = items.shift()
+        return {done: value === undefined, value: value}
+      }
+    }
+
+    if (support.iterable) {
+      iterator[Symbol.iterator] = function() {
+        return iterator
+      }
+    }
+
+    return iterator
+  }
+
+  function Headers(headers) {
+    this.map = {}
+
+    if (headers instanceof Headers) {
+      headers.forEach(function(value, name) {
+        this.append(name, value)
+      }, this)
+    } else if (Array.isArray(headers)) {
+      headers.forEach(function(header) {
+        this.append(header[0], header[1])
+      }, this)
+    } else if (headers) {
+      Object.getOwnPropertyNames(headers).forEach(function(name) {
+        this.append(name, headers[name])
+      }, this)
+    }
+  }
+
+  Headers.prototype.append = function(name, value) {
+    name = normalizeName(name)
+    value = normalizeValue(value)
+    var oldValue = this.map[name]
+    this.map[name] = oldValue ? oldValue+','+value : value
+  }
+
+  Headers.prototype['delete'] = function(name) {
+    delete this.map[normalizeName(name)]
+  }
+
+  Headers.prototype.get = function(name) {
+    name = normalizeName(name)
+    return this.has(name) ? this.map[name] : null
+  }
+
+  Headers.prototype.has = function(name) {
+    return this.map.hasOwnProperty(normalizeName(name))
+  }
+
+  Headers.prototype.set = function(name, value) {
+    this.map[normalizeName(name)] = normalizeValue(value)
+  }
+
+  Headers.prototype.forEach = function(callback, thisArg) {
+    for (var name in this.map) {
+      if (this.map.hasOwnProperty(name)) {
+        callback.call(thisArg, this.map[name], name, this)
+      }
+    }
+  }
+
+  Headers.prototype.keys = function() {
+    var items = []
+    this.forEach(function(value, name) { items.push(name) })
+    return iteratorFor(items)
+  }
+
+  Headers.prototype.values = function() {
+    var items = []
+    this.forEach(function(value) { items.push(value) })
+    return iteratorFor(items)
+  }
+
+  Headers.prototype.entries = function() {
+    var items = []
+    this.forEach(function(value, name) { items.push([name, value]) })
+    return iteratorFor(items)
+  }
+
+  if (support.iterable) {
+    Headers.prototype[Symbol.iterator] = Headers.prototype.entries
+  }
+
+  function consumed(body) {
+    if (body.bodyUsed) {
+      return Promise.reject(new TypeError('Already read'))
+    }
+    body.bodyUsed = true
+  }
+
+  function fileReaderReady(reader) {
+    return new Promise(function(resolve, reject) {
+      reader.onload = function() {
+        resolve(reader.result)
+      }
+      reader.onerror = function() {
+        reject(reader.error)
+      }
+    })
+  }
+
+  function readBlobAsArrayBuffer(blob) {
+    var reader = new FileReader()
+    var promise = fileReaderReady(reader)
+    reader.readAsArrayBuffer(blob)
+    return promise
+  }
+
+  function readBlobAsText(blob) {
+    var reader = new FileReader()
+    var promise = fileReaderReady(reader)
+    reader.readAsText(blob)
+    return promise
+  }
+
+  function readArrayBufferAsText(buf) {
+    var view = new Uint8Array(buf)
+    var chars = new Array(view.length)
+
+    for (var i = 0; i < view.length; i++) {
+      chars[i] = String.fromCharCode(view[i])
+    }
+    return chars.join('')
+  }
+
+  function bufferClone(buf) {
+    if (buf.slice) {
+      return buf.slice(0)
+    } else {
+      var view = new Uint8Array(buf.byteLength)
+      view.set(new Uint8Array(buf))
+      return view.buffer
+    }
+  }
+
+  function Body() {
+    this.bodyUsed = false
+
+    this._initBody = function(body) {
+      this._bodyInit = body
+      if (!body) {
+        this._bodyText = ''
+      } else if (typeof body === 'string') {
+        this._bodyText = body
+      } else if (support.blob && Blob.prototype.isPrototypeOf(body)) {
+        this._bodyBlob = body
+      } else if (support.formData && FormData.prototype.isPrototypeOf(body)) {
+        this._bodyFormData = body
+      } else if (support.searchParams && URLSearchParams.prototype.isPrototypeOf(body)) {
+        this._bodyText = body.toString()
+      } else if (support.arrayBuffer && support.blob && isDataView(body)) {
+        this._bodyArrayBuffer = bufferClone(body.buffer)
+        // IE 10-11 can't handle a DataView body.
+        this._bodyInit = new Blob([this._bodyArrayBuffer])
+      } else if (support.arrayBuffer && (ArrayBuffer.prototype.isPrototypeOf(body) || isArrayBufferView(body))) {
+        this._bodyArrayBuffer = bufferClone(body)
+      } else {
+        throw new Error('unsupported BodyInit type')
+      }
+
+      if (!this.headers.get('content-type')) {
+        if (typeof body === 'string') {
+          this.headers.set('content-type', 'text/plain;charset=UTF-8')
+        } else if (this._bodyBlob && this._bodyBlob.type) {
+          this.headers.set('content-type', this._bodyBlob.type)
+        } else if (support.searchParams && URLSearchParams.prototype.isPrototypeOf(body)) {
+          this.headers.set('content-type', 'application/x-www-form-urlencoded;charset=UTF-8')
+        }
+      }
+    }
+
+    if (support.blob) {
+      this.blob = function() {
+        var rejected = consumed(this)
+        if (rejected) {
+          return rejected
+        }
+
+        if (this._bodyBlob) {
+          return Promise.resolve(this._bodyBlob)
+        } else if (this._bodyArrayBuffer) {
+          return Promise.resolve(new Blob([this._bodyArrayBuffer]))
+        } else if (this._bodyFormData) {
+          throw new Error('could not read FormData body as blob')
+        } else {
+          return Promise.resolve(new Blob([this._bodyText]))
+        }
+      }
+
+      this.arrayBuffer = function() {
+        if (this._bodyArrayBuffer) {
+          return consumed(this) || Promise.resolve(this._bodyArrayBuffer)
+        } else {
+          return this.blob().then(readBlobAsArrayBuffer)
+        }
+      }
+    }
+
+    this.text = function() {
+      var rejected = consumed(this)
+      if (rejected) {
+        return rejected
+      }
+
+      if (this._bodyBlob) {
+        return readBlobAsText(this._bodyBlob)
+      } else if (this._bodyArrayBuffer) {
+        return Promise.resolve(readArrayBufferAsText(this._bodyArrayBuffer))
+      } else if (this._bodyFormData) {
+        throw new Error('could not read FormData body as text')
+      } else {
+        return Promise.resolve(this._bodyText)
+      }
+    }
+
+    if (support.formData) {
+      this.formData = function() {
+        return this.text().then(decode)
+      }
+    }
+
+    this.json = function() {
+      return this.text().then(JSON.parse)
+    }
+
+    return this
+  }
+
+  // HTTP methods whose capitalization should be normalized
+  var methods = ['DELETE', 'GET', 'HEAD', 'OPTIONS', 'POST', 'PUT']
+
+  function normalizeMethod(method) {
+    var upcased = method.toUpperCase()
+    return (methods.indexOf(upcased) > -1) ? upcased : method
+  }
+
+  function Request(input, options) {
+    options = options || {}
+    var body = options.body
+
+    if (input instanceof Request) {
+      if (input.bodyUsed) {
+        throw new TypeError('Already read')
+      }
+      this.url = input.url
+      this.credentials = input.credentials
+      if (!options.headers) {
+        this.headers = new Headers(input.headers)
+      }
+      this.method = input.method
+      this.mode = input.mode
+      if (!body && input._bodyInit != null) {
+        body = input._bodyInit
+        input.bodyUsed = true
+      }
+    } else {
+      this.url = String(input)
+    }
+
+    this.credentials = options.credentials || this.credentials || 'omit'
+    if (options.headers || !this.headers) {
+      this.headers = new Headers(options.headers)
+    }
+    this.method = normalizeMethod(options.method || this.method || 'GET')
+    this.mode = options.mode || this.mode || null
+    this.referrer = null
+
+    if ((this.method === 'GET' || this.method === 'HEAD') && body) {
+      throw new TypeError('Body not allowed for GET or HEAD requests')
+    }
+    this._initBody(body)
+  }
+
+  Request.prototype.clone = function() {
+    return new Request(this, { body: this._bodyInit })
+  }
+
+  function decode(body) {
+    var form = new FormData()
+    body.trim().split('&').forEach(function(bytes) {
+      if (bytes) {
+        var split = bytes.split('=')
+        var name = split.shift().replace(/\+/g, ' ')
+        var value = split.join('=').replace(/\+/g, ' ')
+        form.append(decodeURIComponent(name), decodeURIComponent(value))
+      }
+    })
+    return form
+  }
+
+  function parseHeaders(rawHeaders) {
+    var headers = new Headers()
+    rawHeaders.split(/\r?\n/).forEach(function(line) {
+      var parts = line.split(':')
+      var key = parts.shift().trim()
+      if (key) {
+        var value = parts.join(':').trim()
+        headers.append(key, value)
+      }
+    })
+    return headers
+  }
+
+  Body.call(Request.prototype)
+
+  function Response(bodyInit, options) {
+    if (!options) {
+      options = {}
+    }
+
+    this.type = 'default'
+    this.status = 'status' in options ? options.status : 200
+    this.ok = this.status >= 200 && this.status < 300
+    this.statusText = 'statusText' in options ? options.statusText : 'OK'
+    this.headers = new Headers(options.headers)
+    this.url = options.url || ''
+    this._initBody(bodyInit)
+  }
+
+  Body.call(Response.prototype)
+
+  Response.prototype.clone = function() {
+    return new Response(this._bodyInit, {
+      status: this.status,
+      statusText: this.statusText,
+      headers: new Headers(this.headers),
+      url: this.url
+    })
+  }
+
+  Response.error = function() {
+    var response = new Response(null, {status: 0, statusText: ''})
+    response.type = 'error'
+    return response
+  }
+
+  var redirectStatuses = [301, 302, 303, 307, 308]
+
+  Response.redirect = function(url, status) {
+    if (redirectStatuses.indexOf(status) === -1) {
+      throw new RangeError('Invalid status code')
+    }
+
+    return new Response(null, {status: status, headers: {location: url}})
+  }
+
+  self.Headers = Headers
+  self.Request = Request
+  self.Response = Response
+
+  self.fetch = function(input, init) {
+    return new Promise(function(resolve, reject) {
+      var request = new Request(input, init)
+      var xhr = new XMLHttpRequest()
+
+      xhr.onload = function() {
+        var options = {
+          status: xhr.status,
+          statusText: xhr.statusText,
+          headers: parseHeaders(xhr.getAllResponseHeaders() || '')
+        }
+        options.url = 'responseURL' in xhr ? xhr.responseURL : options.headers.get('X-Request-URL')
+        var body = 'response' in xhr ? xhr.response : xhr.responseText
+        resolve(new Response(body, options))
+      }
+
+      xhr.onerror = function() {
+        reject(new TypeError('Network request failed'))
+      }
+
+      xhr.ontimeout = function() {
+        reject(new TypeError('Network request failed'))
+      }
+
+      xhr.open(request.method, request.url, true)
+
+      if (request.credentials === 'include') {
+        xhr.withCredentials = true
+      }
+
+      if ('responseType' in xhr && support.blob) {
+        xhr.responseType = 'blob'
+      }
+
+      request.headers.forEach(function(value, name) {
+        xhr.setRequestHeader(name, value)
+      })
+
+      xhr.send(typeof request._bodyInit === 'undefined' ? null : request._bodyInit)
+    })
+  }
+  self.fetch.polyfill = true
+})(typeof self !== 'undefined' ? self : this);
+
+},{}],35:[function(require,module,exports){
+let React = require('react');
+let createReactClass = require('create-react-class');
+let validator = require('email-validator');
+
+let EmailField = createReactClass({
+  displayName: 'EmailField',
+
+
+  getInitialState: function () {
+    return { emailInputText: "", emailValid: true };
+  },
+
+  clearField: function () {
+    this.setState({ emailInputText: "", emailValid: true });
+  },
+
+  handleMailChange: function (e) {
+    let emailValue = e.target.value;
+    let valid = validator.validate(emailValue);
+    this.setState({ emailInputText: emailValue, emailValid: valid });
+  },
+
+  render: function () {
+    let formClass = "form-group";
+    if (!this.state.emailValid) {
+      formClass = "form-group has-error";
+    }
+    return React.createElement(
+      'div',
+      { className: formClass },
+      React.createElement('input', { className: 'form-control', onChange: this.handleMailChange, placeholder: 'Email', value: this.state.emailInputText })
+    );
+  }
+
+});
+
+module.exports = EmailField;
+
+},{"create-react-class":2,"email-validator":43,"react":33}],36:[function(require,module,exports){
+var React = require('react');
+var createReactClass = require('create-react-class');
+var EmailField = require('./EmailField.jsx');
+var NameField = require('./NameField.jsx');
+
+var LeadCapture = createReactClass({
+  displayName: 'LeadCapture',
+
+
+  onSave: function (e) {
+    let emailFieldChild = this.refs.emailField;
+    let nameFieldChild = this.refs.nameField;
+    // if child email input has valid data
+    if (!emailFieldChild.state.emailValid) {
+      alert("Email required!");
+    } else {
+      emailFieldChild.clearField();
+      nameFieldChild.clearField();
+    }
+  },
+
+  render: function () {
+    return React.createElement(
+      'div',
+      { className: 'col-sm-3' },
+      React.createElement(
+        'div',
+        { className: 'panel panel-default' },
+        React.createElement(
+          'div',
+          { className: 'panel-body' },
+          React.createElement(NameField, { placeholder: 'First name', ref: 'nameField' }),
+          React.createElement(EmailField, { ref: 'emailField' }),
+          React.createElement(
+            'button',
+            { className: 'btn btn-primary', onClick: this.onSave },
+            'Save'
+          )
+        )
+      )
+    );
+  }
+
+});
+
+module.exports = LeadCapture;
+
+},{"./EmailField.jsx":35,"./NameField.jsx":40,"create-react-class":2,"react":33}],37:[function(require,module,exports){
 var React = require('react');
 var ListItem = require('./ListItem.jsx');
 var createReactClass = require('create-react-class');
 
+/*
+  props:
+        items
+*/
 var List = createReactClass({
   displayName: 'List',
 
+
   render: function () {
     let items = this.props.items.map(item => {
-      return React.createElement(ListItem, { key: item.id, ingredient: item.ingredient });
+      return React.createElement(ListItem, { key: item.id + item.text, text: item.text });
     });
     return React.createElement(
       'ul',
@@ -21866,14 +22421,19 @@ var List = createReactClass({
       items
     );
   }
+
 });
 
 module.exports = List;
 
-},{"./ListItem.jsx":35,"create-react-class":2,"react":33}],35:[function(require,module,exports){
+},{"./ListItem.jsx":38,"create-react-class":2,"react":33}],38:[function(require,module,exports){
 var React = require('react');
 var createReactClass = require('create-react-class');
 
+/*
+   props:
+    text
+*/
 var ListItem = createReactClass({
   displayName: 'ListItem',
 
@@ -21882,9 +22442,9 @@ var ListItem = createReactClass({
       'li',
       null,
       React.createElement(
-        'h4',
+        'h6',
         null,
-        this.props.ingredient
+        this.props.text
       )
     );
   }
@@ -21892,13 +22452,197 @@ var ListItem = createReactClass({
 
 module.exports = ListItem;
 
-},{"create-react-class":2,"react":33}],36:[function(require,module,exports){
+},{"create-react-class":2,"react":33}],39:[function(require,module,exports){
+let React = require('react');
+let List = require('./List.jsx');
+let createReactClass = require('create-react-class');
+var services = require('../services/services.js');
+
+/*
+  props:
+    title
+    items
+    headingColor: si esta definido se aplica
+*/
+let ListManager = createReactClass({
+  displayName: 'ListManager',
+
+
+  getInitialState: function () {
+    return { items: [], newItemText: "" };
+  },
+
+  componentWillMount: function () {
+    services.get('/todos').then(function (data) {
+      console.dir(data);
+      this.setState({ items: data });
+    }.bind(this));
+  },
+
+  handleSubmit: function (e) {
+    e.preventDefault();
+    let currentItems = this.state.items;
+    currentItems.push(this.state.newItemText);
+    this.setState({ items: currentItems, newItemText: "" }); // hay que limpiar el newitem ?
+  },
+
+  handleChange: function (e) {
+    {/*this is a comment*/}
+    console.log("handle change");
+    let newTodo = e.target.value;
+    this.setState({
+      newItemText: newTodo
+    });
+  },
+
+  render: function () {
+
+    let divStyle = {
+      marginTop: 10
+    };
+
+    let headingStyle = {};
+
+    if (this.props.headingColor) {
+      headingStyle.backgroundColor = this.props.headingColor;
+    }
+
+    return React.createElement(
+      'div',
+      { style: divStyle, className: 'col-sm-4' },
+      React.createElement(
+        'div',
+        { className: 'panel panel-primary' },
+        React.createElement(
+          'div',
+          { style: headingStyle, className: 'panel-heading' },
+          React.createElement(
+            'h3',
+            null,
+            this.props.title
+          )
+        ),
+        React.createElement(
+          'div',
+          { className: 'row panel-boy' },
+          React.createElement(
+            'form',
+            { onSubmit: this.handleSubmit },
+            React.createElement(
+              'div',
+              { className: 'col-sm-9' },
+              React.createElement('input', { type: 'text', placeholder: 'add new todo', value: this.state.newItemText, onChange: this.handleChange })
+            ),
+            React.createElement(
+              'div',
+              { className: 'col-sm-2' },
+              React.createElement(
+                'button',
+                { className: 'btn btn-primary' },
+                'Add '
+              )
+            )
+          ),
+          React.createElement(List, { items: this.state.items })
+        )
+      )
+    );
+  }
+
+});
+
+module.exports = ListManager;
+
+},{"../services/services.js":42,"./List.jsx":37,"create-react-class":2,"react":33}],40:[function(require,module,exports){
+var React = require('react');
+var createReactClass = require('create-react-class');
+
+/*
+  props:
+      placeholder
+  state:
+      name
+*/
+var NameField = createReactClass({
+  displayName: 'NameField',
+
+  getInitialState: function () {
+    return { name: "" };
+  },
+
+  clearField: function () {
+    this.setState({ name: "" });
+  },
+
+  onNameChange: function (e) {
+    this.setState({ name: e.target.value });
+  },
+
+  render: function () {
+    return React.createElement('input', { className: 'form-control',
+      placeholder: this.props.placeholder,
+      onChange: this.onNameChange,
+      value: this.state.name });
+  }
+});
+
+module.exports = NameField;
+
+},{"create-react-class":2,"react":33}],41:[function(require,module,exports){
 var React = require('react');
 var ReactDom = require('react-dom');
-var List = require('./components/List.jsx');
+var ListManager = require('./components/ListManager.jsx');
+var LeadCapture = require('./components/LeadCapture.jsx');
 
-let ingredientsData = [{ id: 1, ingredient: "Sugar" }, { id: 2, ingredient: "Salt" }, { id: 3, ingredient: "Cheese" }];
+ReactDom.render(React.createElement(ListManager, { title: 'TO-DO', headingColor: '#b31217' }), document.getElementById('todo'));
+ReactDom.render(React.createElement(ListManager, { title: 'DONE' }), document.getElementById('done'));
+ReactDom.render(React.createElement(ListManager, { title: 'TO-REVIEW' }), document.getElementById('toreview'));
+ReactDom.render(React.createElement(LeadCapture, null), document.getElementById('email'));
 
-ReactDom.render(React.createElement(List, { items: ingredientsData }), document.getElementById('app'));
+},{"./components/LeadCapture.jsx":36,"./components/ListManager.jsx":39,"react":33,"react-dom":30}],42:[function(require,module,exports){
+let Fetch = require('whatwg-fetch');
+let serverUrl = "http://localhost:6069";
 
-},{"./components/List.jsx":34,"react":33,"react-dom":30}]},{},[36]);
+let services = {
+  get: function (url) {
+    return fetch(serverUrl + url).then(function (response) {
+      return response.json();
+    });
+  }
+};
+
+module.exports = services;
+
+},{"whatwg-fetch":34}],43:[function(require,module,exports){
+"use strict";
+
+var tester = /^[-!#$%&'*+\/0-9=?A-Z^_a-z{|}~](\.?[-!#$%&'*+\/0-9=?A-Z^_a-z`{|}~])*@[a-zA-Z0-9](-?\.?[a-zA-Z0-9])*\.[a-zA-Z](-?[a-zA-Z0-9])+$/;
+// Thanks to:
+// http://fightingforalostcause.net/misc/2006/compare-email-regex.php
+// http://thedailywtf.com/Articles/Validating_Email_Addresses.aspx
+// http://stackoverflow.com/questions/201323/what-is-the-best-regular-expression-for-validating-email-addresses/201378#201378
+exports.validate = function(email)
+{
+	if (!email)
+		return false;
+		
+	if(email.length>254)
+		return false;
+
+	var valid = tester.test(email);
+	if(!valid)
+		return false;
+
+	// Further checking of some things regex can't handle
+	var parts = email.split("@");
+	if(parts[0].length>64)
+		return false;
+
+	var domainParts = parts[1].split(".");
+	if(domainParts.some(function(part) { return part.length>63; }))
+		return false;
+
+	return true;
+}
+
+},{}]},{},[41]);
