@@ -1,8 +1,9 @@
 let React = require('react');
 let List = require('./List.jsx');
 let createReactClass = require('create-react-class');
-var services = require('../services/services.js');
-
+let Reflux = require('reflux');
+var Actions = require('../reflux/actions.jsx');
+var TodoStore = require('../reflux/todoStore.jsx');
 
 /*
   props:
@@ -11,29 +12,40 @@ var services = require('../services/services.js');
     headingColor: si esta definido se aplica
 */
 let ListManager = createReactClass({
+  // onChange es la funcion que va a escuchar del store
+  mixins: [Reflux.listenTo(TodoStore, 'onTodoListChange')],
 
   getInitialState: function(){
     return {items: [], newItemText: ""};
   },
 
   componentWillMount: function(){
-    services.get('/todos')
-    .then(function(data){
-      console.dir(data);
-      this.setState({items: data});
-    }.bind(this));
+    Actions.getTodos();
+  },
+
+  onTodoListChange: function(event, todos){
+    this.setState({items: todos})
   },
 
   handleSubmit: function(e){
     e.preventDefault();
+    /*
     let currentItems = this.state.items;
     currentItems.push(this.state.newItemText);
     this.setState({items:currentItems, newItemText:""}); // hay que limpiar el newitem ?
+    */
+
+    // El store actualizaria mediante el callback onTodoListChange el listado de items por ende
+    // no se encarga este componente de setear el nuevo item
+    if(this.state.newItemText !== ""){
+      Actions.postTodo(this.state.newItemText);
+    }
+    this.setState({newItemText:""});
+
+
   },
 
   handleChange: function(e){
-    {/*this is a comment*/}
-    console.log("handle change");
     let newTodo = e.target.value;
     this.setState({
       newItemText : newTodo

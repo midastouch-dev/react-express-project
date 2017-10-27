@@ -13,7 +13,7 @@ app.all('/*', function(req, res, next) {
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({extended: false}));
 
-// local db ..
+// local data ..
 
 var todos = [
     {
@@ -36,15 +36,13 @@ var todos = [
 
 
 app.get('/todos', function(req, res) {
-    console.log("GET From SERVER"+ todos);
     res.send(todos);
 });
 
 app.post('/todos', function(req, res) {
     var todo = req.body;
-    console.log(req.body);
     todos.push(todo);
-    res.status(200).send("Successfully posted todo");
+    res.status(200).send();
 });
 
 app.listen(6069);

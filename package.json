@@ -23,6 +23,7 @@
     "create-react-class": "^15.6.2",
     "react": "^16.0.0",
     "react-dom": "^16.0.0",
+    "reflux": "^6.4.1",
     "s": "^0.1.1",
     "watchify": "^3.9.0",
     "whatwg-fetch": "^2.0.3"

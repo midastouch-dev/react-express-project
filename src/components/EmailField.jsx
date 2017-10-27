@@ -5,11 +5,11 @@ let validator = require('email-validator');
 let EmailField = createReactClass({
 
    getInitialState: function(){
-     return ({emailInputText:"", emailValid: true})
+     return ({emailInputText:"", emailValid: true});
    },
 
    clearField: function(){
-     this.setState({emailInputText:"", emailValid: true})
+     this.setState({emailInputText:"", emailValid: true});
    },
 
    handleMailChange: function(e){
